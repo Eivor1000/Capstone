@@ -34,17 +34,17 @@ function HomePage() {
     },
     {
       id: 3,
-      title: 'Feature 3',
-      description: 'Coming soon - Add your third amazing AI feature here',
+      title: 'Kids Creative Challenge',
+      description: 'Fun creative assignments for kids ages 5-8 with AI grading, points, and leaderboards',
       icon: (
         <svg className="w-16 h-16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
       ),
-      gradient: 'from-green-500 to-emerald-500',
-      route: '/feature-3',
-      features: ['Feature X', 'Feature Y', 'Feature Z', 'Feature W'],
-      comingSoon: true
+      gradient: 'from-pink-500 to-yellow-500',
+      route: '/kids-challenge',
+      features: ['Creative Assignments', 'AI Image Grading', 'Points & Rewards', 'Weekly Leaderboard'],
+      comingSoon: false
     }
   ]
 

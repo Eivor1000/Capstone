@@ -1,10 +1,10 @@
-# 🎨 AI Creative Suite - Story Generator & Study Assistant
+# 🎨 AI Creative Suite - Story Generator, Study Assistant & Kids Challenge
 
-A comprehensive full-stack AI-powered application featuring story generation with cover images, an intelligent study assistant, and educational video recommendations. Built with cutting-edge AI technologies and modern web frameworks.
+A comprehensive full-stack AI-powered application featuring story generation with cover images, an intelligent study assistant, educational video recommendations, and an AI-graded kids creative challenge. Built with cutting-edge AI technologies and modern web frameworks.
 
 ## 🌟 Features Overview
 
-This project includes **3 powerful AI tools** in one platform:
+This project includes **4 powerful AI tools** in one platform:
 
 ### 1️⃣ **AI Story Generator**
 - 📖 Generate creative stories using Groq AI (llama-3.3-70b-versatile)
@@ -29,12 +29,23 @@ This project includes **3 powerful AI tools** in one platform:
 - 📊 Maximum 3 videos per search
 - 🌐 Direct links to watch on YouTube
 
+### 4️⃣ **Kids Creative Challenge** 🎨 (Ages 5-8)
+- 🖍️ Fun creative assignments (coloring, drawing, crafts)
+- 🤖 **AI-powered grading** using local Qwen2-VL-2B-Instruct vision model
+- 🏆 Weekly leaderboard with points system
+- ⭐ Encouraging feedback and improvement suggestions
+- 📸 Upload photos of artwork for instant AI grading
+- 🎯 Scores 0-10 with positive reinforcement
+- 💻 **Runs 100% locally** on GPU (no API costs, privacy-first)
+
 ## 🎯 Use Cases
 
 - **Students:** Summarize textbook chapters, practice with MCQs, find video tutorials
 - **Teachers:** Generate story prompts, create study materials, find educational resources
 - **Writers:** Get story ideas, create book covers, export to PDF
 - **Self-learners:** Understand complex topics, revise with practice questions
+- **Parents:** Fun, educational activities for kids with AI grading and encouragement
+- **Kids (5-8):** Creative challenges with instant feedback and rewards
 
 ## 🚀 Tech Stack
 
@@ -42,6 +53,9 @@ This project includes **3 powerful AI tools** in one platform:
 - **Python 3.8+**
 - **Flask** - REST API framework
 - **Groq API** - Story generation & text processing (llama-3.3-70b-versatile)
+- **Qwen2-VL-2B-Instruct** - Local vision-language model for kids challenge grading
+- **PyTorch 2.5+ (CUDA)** - GPU acceleration for vision model
+- **Transformers** - Hugging Face library for model loading
 - **Pollinations.ai** - Free image generation (no API key needed!)
 - **YouTube Data API v3** - Educational video search
 - **ReportLab** - Professional PDF creation

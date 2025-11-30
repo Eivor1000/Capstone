@@ -12,6 +12,7 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from PIL import Image as PILImage
 from dotenv import load_dotenv
 import time
+from qwen_grader import get_grader
 
 # Load environment variables
 load_dotenv()
@@ -22,7 +23,7 @@ CORS(app)
 # API Keys from environment variables
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
-# Note: HuggingFace API key no longer needed - using Pollinations.ai instead
+# Note: Using local Qwen2-VL-2B-Instruct model for kids challenge image grading
 
 # Initialize Groq client
 groq_client = Groq(api_key=GROQ_API_KEY)
@@ -32,6 +33,46 @@ POLLINATIONS_API_URL = "https://image.pollinations.ai/prompt/"
 
 # YouTube Data API v3 configuration
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/search"
+
+# In-memory storage for Kids Challenge (replace with database in production)
+assignments_db = [
+    {
+        "id": 1,
+        "title": "Rainbow Coloring",
+        "description": "Color a beautiful rainbow with all 7 colors! Be creative and use bright colors.",
+        "type": "coloring",
+        "points_possible": 100,
+        "difficulty": "easy",
+        "criteria": "Use all 7 rainbow colors (red, orange, yellow, green, blue, indigo, violet). Stay within the lines. Use bright, vibrant colors.",
+        "image_url": "https://via.placeholder.com/400x300?text=Rainbow+Template",
+        "active": True
+    },
+    {
+        "id": 2,
+        "title": "Paper Plate Fish",
+        "description": "Create a colorful fish using a paper plate, colors, and decorations!",
+        "type": "craft",
+        "points_possible": 100,
+        "difficulty": "medium",
+        "criteria": "Use a paper plate as the fish body. Add fins and tail. Decorate with colors, patterns, or glitter. Be creative!",
+        "image_url": "https://via.placeholder.com/400x300?text=Fish+Example",
+        "active": True
+    },
+    {
+        "id": 3,
+        "title": "Draw Your Dream House",
+        "description": "Draw the house of your dreams! What would it look like?",
+        "type": "drawing",
+        "points_possible": 100,
+        "difficulty": "medium",
+        "criteria": "Include doors, windows, and a roof. Add colors and details. Be imaginative!",
+        "image_url": "https://via.placeholder.com/400x300?text=House+Example",
+        "active": True
+    }
+]
+
+submissions_db = []
+leaderboard_db = {}
 
 
 @app.route('/api/generate-story', methods=['POST'])
@@ -619,13 +660,315 @@ Topic:"""
         }), 500
 
 
+# ========================================
+# KIDS CREATIVE CHALLENGE ENDPOINTS
+# ========================================
+
+@app.route('/api/kids/assignments', methods=['GET'])
+def get_assignments():
+    """
+    Get all active assignments for Kids Creative Challenge.
+    Returns: {"assignments": [...]}
+    """
+    try:
+        # Filter only active assignments
+        active_assignments = [a for a in assignments_db if a.get('active', True)]
+
+        return jsonify({
+            "assignments": active_assignments,
+            "success": True
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
+
+
+@app.route('/api/kids/assignments/<int:assignment_id>', methods=['GET'])
+def get_assignment(assignment_id):
+    """
+    Get a specific assignment by ID.
+    Returns: {"assignment": {...}}
+    """
+    try:
+        assignment = next((a for a in assignments_db if a['id'] == assignment_id), None)
+
+        if not assignment:
+            return jsonify({
+                "error": "Assignment not found",
+                "success": False
+            }), 404
+
+        return jsonify({
+            "assignment": assignment,
+            "success": True
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
+
+
+@app.route('/api/kids/submit', methods=['POST'])
+def submit_assignment():
+    """
+    Submit an assignment for AI grading using local Qwen2-VL-2B-Instruct model.
+    Expects JSON: {
+        "assignment_id": 1,
+        "child_name": "Emma",
+        "image_data": "base64 encoded image"
+    }
+    Returns: {
+        "score": 8.5,
+        "points_earned": 85,
+        "feedback": "Great job! ...",
+        "improvements": "Try to...",
+        "labels_detected": [...],
+        "colors_detected": [...]
+    }
+    """
+    try:
+        data = request.get_json()
+        assignment_id = data.get('assignment_id')
+        child_name = data.get('child_name', 'Anonymous')
+        image_data_base64 = data.get('image_data', '')
+
+        if not assignment_id or not image_data_base64:
+            return jsonify({
+                "error": "Assignment ID and image data are required",
+                "success": False
+            }), 400
+
+        # Get assignment details
+        assignment = next((a for a in assignments_db if a['id'] == assignment_id), None)
+        if not assignment:
+            return jsonify({
+                "error": "Assignment not found",
+                "success": False
+            }), 404
+
+        # Decode base64 image
+        import base64
+        image_bytes = base64.b64decode(image_data_base64)
+
+        print(f"Analyzing image with local Qwen2-VL-2B-Instruct model...")
+
+        try:
+            # Get Qwen grader instance
+            grader = get_grader()
+
+            # Analyze and grade using Qwen2-VL model (replaces both vision and grading models)
+            grading_result = grader.analyze_image(
+                image_bytes=image_bytes,
+                assignment_title=assignment['title'],
+                assignment_description=assignment['description'],
+                assignment_criteria=assignment['criteria']
+            )
+
+            # Extract results
+            image_description = grading_result.get('description', 'Creative work detected')
+            score = grading_result.get('score', 7.5)
+            feedback = grading_result.get('feedback', 'Great effort!')
+            improvement = grading_result.get('improvement', 'Keep practicing and being creative!')
+
+            print(f"Qwen2-VL grading complete: Score={score}/10")
+
+            # Also do basic color analysis with Pillow as supplementary data
+            from collections import Counter
+            img_buffer = BytesIO(image_bytes)
+            img = PILImage.open(img_buffer)
+
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # Quick color sampling
+            colors_found = []
+            width, height = img.size
+            step = 20  # Sample fewer pixels for speed
+            for x in range(0, width, step):
+                for y in range(0, height, step):
+                    r, g, b = img.getpixel((x, y))
+                    colors_found.append((r, g, b))
+
+            color_counter = Counter(colors_found)
+            most_common_colors = color_counter.most_common(3)
+
+            colors = []
+            for (r, g, b), count in most_common_colors:
+                colors.append({
+                    "rgb": f"rgb({r}, {g}, {b})",
+                    "percentage": round((count / len(colors_found)) * 100, 1)
+                })
+
+        except Exception as e:
+            print(f"Error with Qwen2-VL analysis: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "error": f"AI grading failed: {str(e)}",
+                "success": False
+            }), 500
+
+        # Calculate points earned
+        points_earned = int(score * 10)  # Score of 8.5 = 85 points
+
+        # Store submission
+        submission = {
+            "id": len(submissions_db) + 1,
+            "assignment_id": assignment_id,
+            "child_name": child_name,
+            "score": score,
+            "points_earned": points_earned,
+            "feedback": feedback,
+            "improvement": improvement,
+            "submitted_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "week": time.strftime("%Y-W%U"),  # Year-Week format for leaderboard
+        }
+        submissions_db.append(submission)
+
+        # Update leaderboard
+        week_key = submission['week']
+        if week_key not in leaderboard_db:
+            leaderboard_db[week_key] = {}
+
+        if child_name not in leaderboard_db[week_key]:
+            leaderboard_db[week_key][child_name] = {
+                "total_points": 0,
+                "submissions": 0,
+                "average_score": 0
+            }
+
+        leaderboard_db[week_key][child_name]['total_points'] += points_earned
+        leaderboard_db[week_key][child_name]['submissions'] += 1
+        leaderboard_db[week_key][child_name]['average_score'] = (
+            leaderboard_db[week_key][child_name]['total_points'] /
+            leaderboard_db[week_key][child_name]['submissions']
+        ) / 10  # Convert back to 0-10 scale
+
+        # Create labels from the image description for display
+        labels = [{"label": word, "confidence": 0.9} for word in image_description.split()[:5]]
+
+        return jsonify({
+            "score": score,
+            "points_earned": points_earned,
+            "feedback": feedback,
+            "improvement": improvement,
+            "vision_description": image_description,  # Full AI description
+            "labels_detected": labels,  # Simplified labels for UI
+            "colors_detected": colors[:3],   # Top 3 colors
+            "success": True
+        })
+
+    except Exception as e:
+        print(f"Error grading submission: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
+
+
+@app.route('/api/kids/leaderboard', methods=['GET'])
+def get_leaderboard():
+    """
+    Get leaderboard for current week.
+    Query params: ?period=weekly (default) or monthly
+    Returns: {"leaderboard": [...], "period": "weekly"}
+    """
+    try:
+        period = request.args.get('period', 'weekly')
+        current_week = time.strftime("%Y-W%U")
+
+        # Get data for current week
+        week_data = leaderboard_db.get(current_week, {})
+
+        # Convert to list and sort by total points
+        leaderboard = []
+        for name, stats in week_data.items():
+            leaderboard.append({
+                "name": name,
+                "total_points": stats['total_points'],
+                "submissions": stats['submissions'],
+                "average_score": round(stats['average_score'], 1)
+            })
+
+        # Sort by total points (descending)
+        leaderboard.sort(key=lambda x: x['total_points'], reverse=True)
+
+        # Add rankings
+        for i, entry in enumerate(leaderboard):
+            entry['rank'] = i + 1
+
+        # Return top 10 (or all if less than 10)
+        return jsonify({
+            "leaderboard": leaderboard[:10],
+            "period": period,
+            "week": current_week,
+            "success": True
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
+
+
+@app.route('/api/kids/my-submissions/<child_name>', methods=['GET'])
+def get_child_submissions(child_name):
+    """
+    Get all submissions for a specific child.
+    Returns: {"submissions": [...]}
+    """
+    try:
+        child_submissions = [
+            s for s in submissions_db
+            if s['child_name'].lower() == child_name.lower()
+        ]
+
+        # Sort by most recent first
+        child_submissions.sort(key=lambda x: x['submitted_at'], reverse=True)
+
+        # Calculate total stats
+        total_points = sum(s['points_earned'] for s in child_submissions)
+        avg_score = sum(s['score'] for s in child_submissions) / len(child_submissions) if child_submissions else 0
+
+        return jsonify({
+            "submissions": child_submissions,
+            "total_submissions": len(child_submissions),
+            "total_points": total_points,
+            "average_score": round(avg_score, 1),
+            "success": True
+        })
+
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
+
+
+# ========================================
+# HEALTH CHECK
+# ========================================
+
 @app.route('/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
+    import torch
     return jsonify({
         "status": "healthy",
         "groq_key_configured": bool(GROQ_API_KEY),
-        "image_api": "pollinations.ai (no key needed)"
+        "youtube_key_configured": bool(YOUTUBE_API_KEY),
+        "image_api": "pollinations.ai (no key needed)",
+        "kids_grading": "Local Qwen2-VL-2B-Instruct",
+        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "cuda_available": torch.cuda.is_available()
     })
 
 
