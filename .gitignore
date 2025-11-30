@@ -1,0 +1,165 @@
+# ========================================
+# IMPORTANT: API Keys and Secrets
+# ========================================
+# NEVER commit these files - they contain sensitive API keys!
+backend/.env
+.env
+*.env
+!.env.example
+
+# ========================================
+# Python
+# ========================================
+backend/__pycache__/
+backend/*.py[cod]
+backend/*$py.class
+backend/*.so
+backend/.Python
+backend/build/
+backend/develop-eggs/
+backend/dist/
+backend/downloads/
+backend/eggs/
+backend/.eggs/
+backend/lib/
+backend/lib64/
+backend/parts/
+backend/sdist/
+backend/var/
+backend/wheels/
+backend/pip-wheel-metadata/
+backend/share/python-wheels/
+backend/*.egg-info/
+backend/.installed.cfg
+backend/*.egg
+backend/MANIFEST
+
+# Virtual Environment
+backend/venv/
+backend/env/
+backend/ENV/
+backend/env.bak/
+backend/venv.bak/
+
+# PyCharm
+backend/.idea/
+
+# ========================================
+# Node.js / React / Frontend
+# ========================================
+# Dependencies
+frontend/node_modules/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/lerna-debug.log*
+
+# Production build
+frontend/build/
+frontend/dist/
+frontend/.cache/
+
+# Testing
+frontend/coverage/
+
+# Misc
+frontend/.DS_Store
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Package lock files (optional - you can keep these if you want)
+# frontend/package-lock.json
+# frontend/yarn.lock
+
+# ========================================
+# IDE and Editor files
+# ========================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# ========================================
+# Operating System Files
+# ========================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+*~
+.directory
+.Trash-*
+
+# ========================================
+# Logs and Temporary Files
+# ========================================
+*.log
+logs/
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*.pid
+*.seed
+*.pid.lock
+
+# ========================================
+# Testing and Coverage
+# ========================================
+.coverage
+.pytest_cache/
+htmlcov/
+.tox/
+.nox/
+
+# ========================================
+# Database Files (if any)
+# ========================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ========================================
+# Claude Code / AI Assistant
+# ========================================
+.claude/
+
+# ========================================
+# Git / Version Control
+# ========================================
+.git/
+.gitattributes
+
+# ========================================
+# Misc
+# ========================================
+# PDF outputs (optional - comment out if you want to keep them)
+*.pdf
+
+# Image outputs (optional)
+*.png
+*.jpg
+*.jpeg
