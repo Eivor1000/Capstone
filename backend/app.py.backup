@@ -1,11 +1,5 @@
-"""
-AI Creative Suite - Flask Backend with Database Integration
-Includes: Story Generator, Study Assistant, Kids Challenge, User Authentication
-"""
-
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-from flask_jwt_extended import JWTManager, jwt_required, get_jwt_identity, create_access_token
 from groq import Groq
 import requests
 import os
@@ -18,75 +12,75 @@ from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
 from PIL import Image as PILImage
 from dotenv import load_dotenv
 import time
-from datetime import timedelta
-
-# Local imports
-from models import db, User, Story, StudySession, Quiz, QuizAttempt, KidsAssignment, KidsSubmission, VideoSearch
-from database import init_database, get_database_url, seed_kids_assignments, create_test_user
-from auth import register_auth_routes, get_current_user
 from qwen_grader import get_grader
 
 # Load environment variables
 load_dotenv()
 
-# Initialize Flask app
 app = Flask(__name__)
+CORS(app)
 
-# ========================================
-# Configuration
-# ========================================
-
-# Database
-app.config['SQLALCHEMY_DATABASE_URI'] = get_database_url()
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': int(os.getenv('SQLALCHEMY_POOL_SIZE', 10)),
-    'pool_timeout': int(os.getenv('SQLALCHEMY_POOL_TIMEOUT', 30)),
-    'pool_recycle': int(os.getenv('SQLALCHEMY_POOL_RECYCLE', 3600)),
-    'max_overflow': int(os.getenv('SQLALCHEMY_MAX_OVERFLOW', 20)),
-}
-
-# JWT
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'change-this-secret-key')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = timedelta(hours=int(os.getenv('JWT_EXPIRY_HOURS', 24)))
-app.config['JWT_ALGORITHM'] = os.getenv('JWT_ALGORITHM', 'HS256')
-
-# Flask
-app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'another-secret-key')
-
-# CORS
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
-CORS(app, resources={r"/api/*": {"origins": cors_origins}})
-
-# Initialize extensions
-jwt = JWTManager(app)
-db_instance = init_database(app)
-
-# Register authentication routes
-register_auth_routes(app)
-
-# API Keys
+# API Keys from environment variables
 GROQ_API_KEY = os.getenv('GROQ_API_KEY')
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY')
+# Note: Using local Qwen2-VL-2B-Instruct model for kids challenge image grading
 
 # Initialize Groq client
-groq_client = Groq(api_key=GROQ_API_KEY) if GROQ_API_KEY else None
+groq_client = Groq(api_key=GROQ_API_KEY)
 
-# API URLs
+# Image generation API - Using Pollinations.ai (free, no API key needed)
 POLLINATIONS_API_URL = "https://image.pollinations.ai/prompt/"
+
+# YouTube Data API v3 configuration
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/search"
 
+# In-memory storage for Kids Challenge (replace with database in production)
+assignments_db = [
+    {
+        "id": 1,
+        "title": "Rainbow Coloring",
+        "description": "Color a beautiful rainbow with all 7 colors! Be creative and use bright colors.",
+        "type": "coloring",
+        "points_possible": 100,
+        "difficulty": "easy",
+        "criteria": "Use all 7 rainbow colors (red, orange, yellow, green, blue, indigo, violet). Stay within the lines. Use bright, vibrant colors.",
+        "image_url": "https://via.placeholder.com/400x300?text=Rainbow+Template",
+        "active": True
+    },
+    {
+        "id": 2,
+        "title": "Paper Plate Fish",
+        "description": "Create a colorful fish using a paper plate, colors, and decorations!",
+        "type": "craft",
+        "points_possible": 100,
+        "difficulty": "medium",
+        "criteria": "Use a paper plate as the fish body. Add fins and tail. Decorate with colors, patterns, or glitter. Be creative!",
+        "image_url": "https://via.placeholder.com/400x300?text=Fish+Example",
+        "active": True
+    },
+    {
+        "id": 3,
+        "title": "Draw Your Dream House",
+        "description": "Draw the house of your dreams! What would it look like?",
+        "type": "drawing",
+        "points_possible": 100,
+        "difficulty": "medium",
+        "criteria": "Include doors, windows, and a roof. Add colors and details. Be imaginative!",
+        "image_url": "https://via.placeholder.com/400x300?text=House+Example",
+        "active": True
+    }
+]
 
-# ========================================
-# STORY GENERATOR ENDPOINTS (with database)
-# ========================================
+submissions_db = []
+leaderboard_db = {}
+
 
 @app.route('/api/generate-story', methods=['POST'])
-@jwt_required(optional=True)  # Optional: works for both logged-in and guest users
 def generate_story():
     """
-    Generate a creative story using Groq API
-    Saves to database if user is logged in
+    Generate a creative story using Groq API with llama-3.3-70b-versatile model.
+    Expects JSON: {"prompt": "story prompt"}
+    Returns: {"story": "generated story text"}
     """
     try:
         data = request.get_json()
@@ -95,7 +89,7 @@ def generate_story():
         if not prompt:
             return jsonify({"error": "Prompt is required"}), 400
 
-        # Generate story
+        # Create a detailed prompt for story generation
         story_prompt = f"""You are a creative storyteller. Write an engaging and imaginative story based on this prompt: "{prompt}"
 
 The story should be:
@@ -106,50 +100,40 @@ The story should be:
 
 Write the complete story now:"""
 
+        # Call Groq API
         chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": story_prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": story_prompt,
+                }
+            ],
             model="llama-3.3-70b-versatile",
             temperature=0.8,
             max_tokens=2000,
         )
 
         story = chat_completion.choices[0].message.content
-        word_count = len(story.split())
-
-        # Save to database if user is logged in
-        story_id = None
-        try:
-            user_id = get_jwt_identity()
-            if user_id:
-                new_story = Story(
-                    user_id=user_id,
-                    title=prompt[:100],  # First 100 chars as title
-                    prompt=prompt,
-                    story_text=story,
-                    word_count=word_count
-                )
-                db.session.add(new_story)
-                db.session.commit()
-                story_id = new_story.id
-                print(f"✅ Story saved to database (ID: {story_id})")
-        except Exception as e:
-            print(f"⚠️  Could not save story (user not logged in or error): {e}")
-            db.session.rollback()
 
         return jsonify({
             "story": story,
-            "story_id": story_id,
-            "word_count": word_count,
             "success": True
         })
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
 
 
 @app.route('/api/generate-image', methods=['POST'])
 def generate_image():
-    """Generate cover image using Pollinations.ai"""
+    """
+    Generate a cover image using Pollinations.ai (free, no API key needed).
+    Expects JSON: {"prompt": "image description"}
+    Returns: {"image_url": "base64 encoded image"}
+    """
     try:
         data = request.get_json()
         prompt = data.get('prompt', '')
@@ -157,27 +141,35 @@ def generate_image():
         if not prompt:
             return jsonify({"error": "Prompt is required"}), 400
 
+        # Create a book cover-focused prompt (keep it shorter for faster generation)
         image_prompt = f"book cover art: {prompt}, artistic, high quality"
 
+        # URL encode the prompt for Pollinations.ai
         from urllib.parse import quote
         encoded_prompt = quote(image_prompt)
 
+        # Pollinations.ai API - GET request returns image directly
+        # Using smaller size for faster generation
         image_url = f"{POLLINATIONS_API_URL}{encoded_prompt}?width=768&height=768&nologo=true&enhance=true"
 
         print(f"Requesting image from: {image_url[:100]}...")
 
+        # Try multiple times with increasing timeout
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                timeout = 60 + (attempt * 30)
+                # Increase timeout progressively
+                timeout = 60 + (attempt * 30)  # 60s, 90s, 120s
                 print(f"Attempt {attempt + 1}/{max_retries} with {timeout}s timeout...")
 
                 response = requests.get(image_url, timeout=timeout)
 
                 if response.status_code == 200:
+                    # Convert image to base64 for transmission
                     import base64
                     image_bytes = response.content
 
+                    # Verify it's actually an image
                     if len(image_bytes) < 100:
                         raise Exception("Received invalid image data")
 
@@ -189,8 +181,9 @@ def generate_image():
                         "success": True
                     })
                 else:
+                    print(f"Failed with status {response.status_code}")
                     if attempt < max_retries - 1:
-                        time.sleep(2)
+                        time.sleep(2)  # Wait before retry
                         continue
                     else:
                         return jsonify({
@@ -199,50 +192,31 @@ def generate_image():
                         }), response.status_code
 
             except requests.exceptions.Timeout:
+                print(f"Timeout on attempt {attempt + 1}")
                 if attempt < max_retries - 1:
-                    time.sleep(2)
+                    time.sleep(2)  # Wait before retry
                     continue
                 else:
                     return jsonify({
-                        "error": "Image generation timed out. Please try again.",
+                        "error": "Image generation timed out. The service might be busy. Please try again.",
                         "success": False
                     }), 504
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@app.route('/api/stories/save-image', methods=['POST'])
-@jwt_required()
-def save_story_image():
-    """Save/update cover image for a story"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-
-        story_id = data.get('story_id')
-        image_data = data.get('image_data')
-
-        if not story_id or not image_data:
-            return jsonify({"error": "story_id and image_data required"}), 400
-
-        story = Story.query.filter_by(id=story_id, user_id=user_id).first()
-        if not story:
-            return jsonify({"error": "Story not found"}), 404
-
-        story.cover_image_data = image_data
-        db.session.commit()
-
-        return jsonify({"success": True, "message": "Image saved"})
-
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e), "success": False}), 500
+        print(f"Error generating image: {str(e)}")
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
 
 
 @app.route('/api/create-pdf', methods=['POST'])
 def create_pdf():
-    """Create PDF with cover and story"""
+    """
+    Create a PDF with cover image on page 1 and story text on subsequent pages.
+    Expects JSON: {"story": "story text", "image_data": "base64 image", "title": "Story Title"}
+    Returns: PDF file for download
+    """
     try:
         data = request.get_json()
         story = data.get('story', '')
@@ -252,13 +226,16 @@ def create_pdf():
         if not story or not image_data_base64:
             return jsonify({"error": "Story and image data are required"}), 400
 
+        # Decode base64 image
         import base64
         image_bytes = base64.b64decode(image_data_base64)
 
+        # Create PDF in memory
         pdf_buffer = BytesIO()
         doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
         story_elements = []
 
+        # Styles
         styles = getSampleStyleSheet()
         title_style = ParagraphStyle(
             'CustomTitle',
@@ -280,42 +257,55 @@ def create_pdf():
             fontName='Times-Roman'
         )
 
-        # Cover image
+        # PAGE 1: Cover Image (full page)
+        # Save image temporarily to use with reportlab
         img_buffer = BytesIO(image_bytes)
         pil_image = PILImage.open(img_buffer)
 
+        # Resize image to fit page while maintaining aspect ratio
         page_width, page_height = letter
         img_width, img_height = pil_image.size
         aspect = img_height / float(img_width)
 
+        # Make image fill most of the page
         display_width = page_width - 1*inch
         display_height = display_width * aspect
 
+        # If height is too large, scale by height instead
         if display_height > page_height - 2*inch:
             display_height = page_height - 2*inch
             display_width = display_height / aspect
 
+        # Save PIL image to BytesIO for reportlab
         img_io = BytesIO()
         pil_image.save(img_io, format='PNG')
         img_io.seek(0)
 
+        # Add cover image centered on page
         cover_image = Image(img_io, width=display_width, height=display_height)
         story_elements.append(Spacer(1, 1*inch))
         story_elements.append(cover_image)
+
+        # Page break before story content
         story_elements.append(PageBreak())
 
-        # Story content
+        # PAGE 2+: Story Title and Text
         story_elements.append(Spacer(1, 0.5*inch))
         story_elements.append(Paragraph(title, title_style))
         story_elements.append(Spacer(1, 0.3*inch))
 
+        # Add story paragraphs
+        # Split story into paragraphs
         paragraphs = story.split('\n')
         for para in paragraphs:
             if para.strip():
                 story_elements.append(Paragraph(para.strip(), body_style))
                 story_elements.append(Spacer(1, 0.1*inch))
 
+        # Build PDF
         doc.build(story_elements)
+
+        # Get PDF bytes
         pdf_buffer.seek(0)
 
         return send_file(
@@ -326,35 +316,19 @@ def create_pdf():
         )
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@app.route('/api/stories/my-stories', methods=['GET'])
-@jwt_required()
-def get_my_stories():
-    """Get all stories for logged-in user"""
-    try:
-        user_id = get_jwt_identity()
-        stories = Story.query.filter_by(user_id=user_id).order_by(Story.created_at.desc()).all()
-
         return jsonify({
-            "success": True,
-            "stories": [story.to_dict() for story in stories],
-            "total": len(stories)
-        })
+            "error": str(e),
+            "success": False
+        }), 500
 
-    except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-# ========================================
-# STUDY ASSISTANT ENDPOINTS (with database)
-# ========================================
 
 @app.route('/api/summarize', methods=['POST'])
-@jwt_required(optional=True)
 def summarize_text():
-    """Summarize text and save to database"""
+    """
+    Summarize text for students using Groq API.
+    Expects JSON: {"text": "paragraph to summarize"}
+    Returns: {"summary": "summarized text"}
+    """
     try:
         data = request.get_json()
         text = data.get('text', '')
@@ -362,14 +336,21 @@ def summarize_text():
         if not text:
             return jsonify({"error": "Text is required"}), 400
 
+        # Create summarization prompt
         prompt = f"""Summarize the following text in 3-5 clear bullet points suitable for a student. Make it concise and easy to understand:
 
 {text}
 
 Provide the summary as bullet points."""
 
+        # Call Groq API
         chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
             model="llama-3.3-70b-versatile",
             temperature=0.5,
             max_tokens=1000,
@@ -377,39 +358,25 @@ Provide the summary as bullet points."""
 
         summary = chat_completion.choices[0].message.content
 
-        # Save to database if logged in
-        session_id = None
-        try:
-            user_id = get_jwt_identity()
-            if user_id:
-                topic = text[:100]  # First 100 chars as topic
-                session = StudySession(
-                    user_id=user_id,
-                    topic=topic,
-                    input_text=text,
-                    mode='summarize',
-                    output_text=summary
-                )
-                db.session.add(session)
-                db.session.commit()
-                session_id = session.id
-        except:
-            db.session.rollback()
-
         return jsonify({
             "summary": summary,
-            "session_id": session_id,
             "success": True
         })
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
 
 
 @app.route('/api/explain', methods=['POST'])
-@jwt_required(optional=True)
 def explain_concept():
-    """Explain concept and save to database"""
+    """
+    Provide detailed explanation with examples using Groq API.
+    Expects JSON: {"text": "concept to explain"}
+    Returns: {"explanation": "detailed explanation"}
+    """
     try:
         data = request.get_json()
         text = data.get('text', '')
@@ -417,6 +384,7 @@ def explain_concept():
         if not text:
             return jsonify({"error": "Text is required"}), 400
 
+        # Create explanation prompt
         prompt = f"""Explain the following concept in detail for a student. Your explanation should include:
 
 1. A simple, clear definition
@@ -430,8 +398,14 @@ Concept/Text:
 
 Provide a comprehensive but easy-to-understand explanation."""
 
+        # Call Groq API
         chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
             model="llama-3.3-70b-versatile",
             temperature=0.6,
             max_tokens=2000,
@@ -439,39 +413,25 @@ Provide a comprehensive but easy-to-understand explanation."""
 
         explanation = chat_completion.choices[0].message.content
 
-        # Save to database
-        session_id = None
-        try:
-            user_id = get_jwt_identity()
-            if user_id:
-                topic = text[:100]
-                session = StudySession(
-                    user_id=user_id,
-                    topic=topic,
-                    input_text=text,
-                    mode='explain',
-                    output_text=explanation
-                )
-                db.session.add(session)
-                db.session.commit()
-                session_id = session.id
-        except:
-            db.session.rollback()
-
         return jsonify({
             "explanation": explanation,
-            "session_id": session_id,
             "success": True
         })
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
+        return jsonify({
+            "error": str(e),
+            "success": False
+        }), 500
 
 
 @app.route('/api/generate-revision', methods=['POST'])
-@jwt_required(optional=True)
 def generate_revision():
-    """Generate MCQs and Q&A, save to database"""
+    """
+    Generate MCQs and Q&A pairs for revision using Groq API.
+    Expects JSON: {"text": "content to create questions from"}
+    Returns: {"mcqs": [...], "qas": [...]}
+    """
     try:
         data = request.get_json()
         text = data.get('text', '')
@@ -479,6 +439,7 @@ def generate_revision():
         if not text:
             return jsonify({"error": "Text is required"}), 400
 
+        # Create revision questions prompt
         prompt = f"""Based on the following text, generate revision materials for a student:
 
 Text:
@@ -508,8 +469,14 @@ Format your response EXACTLY as JSON (no markdown, no code blocks, just pure JSO
 
 Make sure the questions test understanding, not just memorization."""
 
+        # Call Groq API
         chat_completion = groq_client.chat.completions.create(
-            messages=[{"role": "user", "content": prompt}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
             model="llama-3.3-70b-versatile",
             temperature=0.7,
             max_tokens=3000,
@@ -517,9 +484,11 @@ Make sure the questions test understanding, not just memorization."""
 
         response_text = chat_completion.choices[0].message.content
 
+        # Try to parse JSON from response
         import json
         import re
 
+        # Remove markdown code blocks if present
         response_text = re.sub(r'```json\s*', '', response_text)
         response_text = re.sub(r'```\s*', '', response_text)
         response_text = response_text.strip()
@@ -527,39 +496,24 @@ Make sure the questions test understanding, not just memorization."""
         try:
             revision_data = json.loads(response_text)
 
+            # Validate structure
             if 'mcqs' not in revision_data or 'qas' not in revision_data:
                 raise ValueError("Invalid JSON structure")
 
+            # Limit to max 10 MCQs and 5 QAs
             revision_data['mcqs'] = revision_data['mcqs'][:10]
             revision_data['qas'] = revision_data['qas'][:5]
-
-            # Save to database
-            quiz_id = None
-            try:
-                user_id = get_jwt_identity()
-                if user_id:
-                    topic = text[:100]
-                    quiz = Quiz(
-                        user_id=user_id,
-                        topic=topic,
-                        input_text=text,
-                        mcqs=revision_data['mcqs'],
-                        qas=revision_data['qas']
-                    )
-                    db.session.add(quiz)
-                    db.session.commit()
-                    quiz_id = quiz.id
-            except:
-                db.session.rollback()
 
             return jsonify({
                 "mcqs": revision_data['mcqs'],
                 "qas": revision_data['qas'],
-                "quiz_id": quiz_id,
                 "success": True
             })
 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as je:
+            # Fallback: return text-based response
+            print(f"JSON parse error: {je}")
+            print(f"Response was: {response_text}")
             return jsonify({
                 "error": "Failed to parse revision questions. Please try again.",
                 "raw_response": response_text,
@@ -567,74 +521,20 @@ Make sure the questions test understanding, not just memorization."""
             }), 500
 
     except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@app.route('/api/quiz/submit-score', methods=['POST'])
-@jwt_required()
-def submit_quiz_score():
-    """Submit quiz score"""
-    try:
-        user_id = get_jwt_identity()
-        data = request.get_json()
-
-        quiz_id = data.get('quiz_id')
-        mcq_score = data.get('mcq_score')
-        mcq_total = data.get('mcq_total')
-        answers = data.get('answers')
-
-        if not quiz_id or mcq_score is None:
-            return jsonify({"error": "quiz_id and mcq_score required"}), 400
-
-        attempt = QuizAttempt(
-            quiz_id=quiz_id,
-            user_id=user_id,
-            mcq_score=mcq_score,
-            mcq_total=mcq_total,
-            answers=answers
-        )
-        db.session.add(attempt)
-        db.session.commit()
-
         return jsonify({
-            "success": True,
-            "attempt_id": attempt.id,
-            "message": "Score saved"
-        })
+            "error": str(e),
+            "success": False
+        }), 500
 
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-@app.route('/api/study/history', methods=['GET'])
-@jwt_required()
-def get_study_history():
-    """Get study history for user"""
-    try:
-        user_id = get_jwt_identity()
-
-        sessions = StudySession.query.filter_by(user_id=user_id).order_by(StudySession.created_at.desc()).limit(20).all()
-        quizzes = Quiz.query.filter_by(user_id=user_id).order_by(Quiz.created_at.desc()).limit(20).all()
-
-        return jsonify({
-            "success": True,
-            "sessions": [s.to_dict() for s in sessions],
-            "quizzes": [q.to_dict() for q in quizzes]
-        })
-
-    except Exception as e:
-        return jsonify({"error": str(e), "success": False}), 500
-
-
-# ========================================
-# VIDEO SEARCH ENDPOINTS (with database)
-# ========================================
 
 @app.route('/api/find-videos', methods=['POST'])
-@jwt_required(optional=True)
 def find_educational_videos():
-    """Find educational YouTube videos and save to database"""
+    """
+    Find educational YouTube videos using YouTube Data API v3.
+    EDUCATIONAL USE ONLY - includes safety filters and content restrictions.
+    Expects JSON: {"text": "topic or paragraph to extract topic from"}
+    Returns: {"topic": "extracted topic", "videos": [...]}
+    """
     try:
         data = request.get_json()
         text = data.get('text', '')
@@ -648,7 +548,7 @@ def find_educational_videos():
                 "success": False
             }), 503
 
-        # Extract topic using Groq
+        # Step 1: Extract main topic using Groq
         topic_prompt = f"""Extract the main educational topic from this text. Return ONLY 2-4 words representing the core subject for searching educational videos.
 
 Text: {text}
@@ -665,29 +565,32 @@ Topic:"""
         topic = topic_completion.choices[0].message.content.strip()
         print(f"Extracted topic: {topic}")
 
-        # Search YouTube with educational filters
+        # Step 2: Search YouTube with educational filters
+        # Educational channels whitelist for better quality
         educational_keywords = f"{topic} explained tutorial educational lesson"
 
         params = {
             'part': 'snippet',
             'q': educational_keywords,
             'type': 'video',
-            'videoEmbeddable': 'true',
-            'videoSyndicated': 'true',
-            'safeSearch': 'strict',
-            'relevanceLanguage': 'en',
-            'maxResults': 3,
-            'order': 'relevance',
-            'videoDuration': 'medium',
+            'videoEmbeddable': 'true',  # Only embeddable videos
+            'videoSyndicated': 'true',  # Only videos that can be played outside YouTube
+            'safeSearch': 'strict',  # IMPORTANT: Strict safety filter
+            'relevanceLanguage': 'en',  # English content
+            'maxResults': 3,  # Only 3 videos as requested
+            'order': 'relevance',  # Most relevant first
+            'videoDuration': 'medium',  # 4-20 minutes (good for learning)
             'key': YOUTUBE_API_KEY
         }
 
+        # Call YouTube Data API
         response = requests.get(YOUTUBE_API_URL, params=params, timeout=10)
 
         if response.status_code != 200:
             error_data = response.json() if response.text else {}
             error_message = error_data.get('error', {}).get('message', 'YouTube API error')
 
+            # Handle quota exceeded
             if response.status_code == 403 and 'quota' in error_message.lower():
                 return jsonify({
                     "error": "Daily YouTube search quota exceeded. Please try again tomorrow.",
@@ -703,16 +606,19 @@ Topic:"""
         youtube_data = response.json()
         videos = []
 
+        # Parse YouTube response
         for item in youtube_data.get('items', []):
             video_id = item['id'].get('videoId')
             if not video_id:
                 continue
 
             snippet = item['snippet']
+
+            # Additional safety check: Skip if title/description contains inappropriate keywords
             title = snippet.get('title', '').lower()
             description = snippet.get('description', '').lower()
 
-            # Skip non-educational content
+            # Skip non-educational content indicators
             skip_keywords = ['game', 'gaming', 'funny', 'prank', 'vlog', 'challenge', 'reaction']
             if any(keyword in title or keyword in description for keyword in skip_keywords):
                 continue
@@ -721,7 +627,7 @@ Topic:"""
                 'video_id': video_id,
                 'title': snippet.get('title', 'Untitled'),
                 'channel': snippet.get('channelTitle', 'Unknown Channel'),
-                'description': snippet.get('description', '')[:200],
+                'description': snippet.get('description', '')[:200],  # First 200 chars
                 'thumbnail': snippet.get('thumbnails', {}).get('medium', {}).get('url', ''),
                 'published_at': snippet.get('publishedAt', ''),
                 'url': f"https://www.youtube.com/watch?v={video_id}"
@@ -729,6 +635,7 @@ Topic:"""
 
             videos.append(video_data)
 
+        # If no videos found after filtering, return error
         if not videos:
             return jsonify({
                 "error": "No suitable educational videos found. Try a different topic.",
@@ -736,29 +643,11 @@ Topic:"""
                 "topic": topic
             }), 404
 
-        # Save to database
-        search_id = None
-        try:
-            user_id = get_jwt_identity()
-            if user_id:
-                search = VideoSearch(
-                    user_id=user_id,
-                    input_text=text,
-                    extracted_topic=topic,
-                    videos=videos[:3]
-                )
-                db.session.add(search)
-                db.session.commit()
-                search_id = search.id
-        except:
-            db.session.rollback()
-
         print(f"Found {len(videos)} educational videos for topic: {topic}")
 
         return jsonify({
             "topic": topic,
-            "videos": videos[:3],
-            "search_id": search_id,
+            "videos": videos[:3],  # Ensure max 3 videos
             "success": True,
             "educational_use_notice": "These videos are for educational purposes only."
         })
@@ -772,17 +661,21 @@ Topic:"""
 
 
 # ========================================
-# KIDS CHALLENGE ENDPOINTS (with database)
+# KIDS CREATIVE CHALLENGE ENDPOINTS
 # ========================================
 
 @app.route('/api/kids/assignments', methods=['GET'])
 def get_assignments():
-    """Get all active assignments for Kids Creative Challenge"""
+    """
+    Get all active assignments for Kids Creative Challenge.
+    Returns: {"assignments": [...]}
+    """
     try:
-        active_assignments = KidsAssignment.query.filter_by(is_active=True).all()
+        # Filter only active assignments
+        active_assignments = [a for a in assignments_db if a.get('active', True)]
 
         return jsonify({
-            "assignments": [a.to_dict() for a in active_assignments],
+            "assignments": active_assignments,
             "success": True
         })
 
@@ -795,9 +688,12 @@ def get_assignments():
 
 @app.route('/api/kids/assignments/<int:assignment_id>', methods=['GET'])
 def get_assignment(assignment_id):
-    """Get a specific assignment by ID"""
+    """
+    Get a specific assignment by ID.
+    Returns: {"assignment": {...}}
+    """
     try:
-        assignment = KidsAssignment.query.get(assignment_id)
+        assignment = next((a for a in assignments_db if a['id'] == assignment_id), None)
 
         if not assignment:
             return jsonify({
@@ -806,7 +702,7 @@ def get_assignment(assignment_id):
             }), 404
 
         return jsonify({
-            "assignment": assignment.to_dict(),
+            "assignment": assignment,
             "success": True
         })
 
@@ -818,11 +714,22 @@ def get_assignment(assignment_id):
 
 
 @app.route('/api/kids/submit', methods=['POST'])
-@jwt_required(optional=True)
 def submit_assignment():
     """
     Submit an assignment for AI grading using local Qwen2-VL-2B-Instruct model.
-    Saves submission to database.
+    Expects JSON: {
+        "assignment_id": 1,
+        "child_name": "Emma",
+        "image_data": "base64 encoded image"
+    }
+    Returns: {
+        "score": 8.5,
+        "points_earned": 85,
+        "feedback": "Great job! ...",
+        "improvements": "Try to...",
+        "labels_detected": [...],
+        "colors_detected": [...]
+    }
     """
     try:
         data = request.get_json()
@@ -837,7 +744,7 @@ def submit_assignment():
             }), 400
 
         # Get assignment details
-        assignment = KidsAssignment.query.get(assignment_id)
+        assignment = next((a for a in assignments_db if a['id'] == assignment_id), None)
         if not assignment:
             return jsonify({
                 "error": "Assignment not found",
@@ -854,12 +761,12 @@ def submit_assignment():
             # Get Qwen grader instance
             grader = get_grader()
 
-            # Analyze and grade using Qwen2-VL model
+            # Analyze and grade using Qwen2-VL model (replaces both vision and grading models)
             grading_result = grader.analyze_image(
                 image_bytes=image_bytes,
-                assignment_title=assignment.title,
-                assignment_description=assignment.description,
-                assignment_criteria=assignment.criteria
+                assignment_title=assignment['title'],
+                assignment_description=assignment['description'],
+                assignment_criteria=assignment['criteria']
             )
 
             # Extract results
@@ -870,7 +777,7 @@ def submit_assignment():
 
             print(f"Qwen2-VL grading complete: Score={score}/10")
 
-            # Color analysis
+            # Also do basic color analysis with Pillow as supplementary data
             from collections import Counter
             img_buffer = BytesIO(image_bytes)
             img = PILImage.open(img_buffer)
@@ -878,9 +785,10 @@ def submit_assignment():
             if img.mode != 'RGB':
                 img = img.convert('RGB')
 
+            # Quick color sampling
             colors_found = []
             width, height = img.size
-            step = 20
+            step = 20  # Sample fewer pixels for speed
             for x in range(0, width, step):
                 for y in range(0, height, step):
                     r, g, b = img.getpixel((x, y))
@@ -906,35 +814,42 @@ def submit_assignment():
             }), 500
 
         # Calculate points earned
-        points_earned = int(score * 10)
+        points_earned = int(score * 10)  # Score of 8.5 = 85 points
 
-        # Get user_id if logged in
-        user_id = None
-        try:
-            user_id = get_jwt_identity()
-        except:
-            pass
+        # Store submission
+        submission = {
+            "id": len(submissions_db) + 1,
+            "assignment_id": assignment_id,
+            "child_name": child_name,
+            "score": score,
+            "points_earned": points_earned,
+            "feedback": feedback,
+            "improvement": improvement,
+            "submitted_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "week": time.strftime("%Y-W%U"),  # Year-Week format for leaderboard
+        }
+        submissions_db.append(submission)
 
-        # Store submission in database
-        week = time.strftime("%Y-W%U")
-        submission = KidsSubmission(
-            assignment_id=assignment_id,
-            user_id=user_id,
-            child_name=child_name,
-            score=score,
-            points_earned=points_earned,
-            feedback=feedback,
-            improvement=improvement,
-            vision_description=image_description,
-            week=week
-        )
+        # Update leaderboard
+        week_key = submission['week']
+        if week_key not in leaderboard_db:
+            leaderboard_db[week_key] = {}
 
-        db.session.add(submission)
-        db.session.commit()
+        if child_name not in leaderboard_db[week_key]:
+            leaderboard_db[week_key][child_name] = {
+                "total_points": 0,
+                "submissions": 0,
+                "average_score": 0
+            }
 
-        print(f"✅ Submission saved to database (ID: {submission.id})")
+        leaderboard_db[week_key][child_name]['total_points'] += points_earned
+        leaderboard_db[week_key][child_name]['submissions'] += 1
+        leaderboard_db[week_key][child_name]['average_score'] = (
+            leaderboard_db[week_key][child_name]['total_points'] /
+            leaderboard_db[week_key][child_name]['submissions']
+        ) / 10  # Convert back to 0-10 scale
 
-        # Create labels from description
+        # Create labels from the image description for display
         labels = [{"label": word, "confidence": 0.9} for word in image_description.split()[:5]]
 
         return jsonify({
@@ -942,10 +857,9 @@ def submit_assignment():
             "points_earned": points_earned,
             "feedback": feedback,
             "improvement": improvement,
-            "vision_description": image_description,
-            "labels_detected": labels,
-            "colors_detected": colors[:3],
-            "submission_id": submission.id,
+            "vision_description": image_description,  # Full AI description
+            "labels_detected": labels,  # Simplified labels for UI
+            "colors_detected": colors[:3],   # Top 3 colors
             "success": True
         })
 
@@ -953,7 +867,6 @@ def submit_assignment():
         print(f"Error grading submission: {str(e)}")
         import traceback
         traceback.print_exc()
-        db.session.rollback()
         return jsonify({
             "error": str(e),
             "success": False
@@ -962,48 +875,39 @@ def submit_assignment():
 
 @app.route('/api/kids/leaderboard', methods=['GET'])
 def get_leaderboard():
-    """Get leaderboard for current week"""
+    """
+    Get leaderboard for current week.
+    Query params: ?period=weekly (default) or monthly
+    Returns: {"leaderboard": [...], "period": "weekly"}
+    """
     try:
+        period = request.args.get('period', 'weekly')
         current_week = time.strftime("%Y-W%U")
 
-        # Get all submissions for current week
-        submissions = KidsSubmission.query.filter_by(week=current_week).all()
+        # Get data for current week
+        week_data = leaderboard_db.get(current_week, {})
 
-        # Aggregate by child name
-        leaderboard_dict = {}
-        for sub in submissions:
-            name = sub.child_name
-            if name not in leaderboard_dict:
-                leaderboard_dict[name] = {
-                    "name": name,
-                    "total_points": 0,
-                    "submissions": 0,
-                    "average_score": 0
-                }
-
-            leaderboard_dict[name]['total_points'] += sub.points_earned
-            leaderboard_dict[name]['submissions'] += 1
-
-        # Calculate average scores
-        for entry in leaderboard_dict.values():
-            entry['average_score'] = round(
-                entry['total_points'] / entry['submissions'] / 10, 1
-            )
+        # Convert to list and sort by total points
+        leaderboard = []
+        for name, stats in week_data.items():
+            leaderboard.append({
+                "name": name,
+                "total_points": stats['total_points'],
+                "submissions": stats['submissions'],
+                "average_score": round(stats['average_score'], 1)
+            })
 
         # Sort by total points (descending)
-        leaderboard = sorted(
-            leaderboard_dict.values(),
-            key=lambda x: x['total_points'],
-            reverse=True
-        )
+        leaderboard.sort(key=lambda x: x['total_points'], reverse=True)
 
         # Add rankings
         for i, entry in enumerate(leaderboard):
             entry['rank'] = i + 1
 
+        # Return top 10 (or all if less than 10)
         return jsonify({
             "leaderboard": leaderboard[:10],
-            "period": "weekly",
+            "period": period,
             "week": current_week,
             "success": True
         })
@@ -1017,19 +921,26 @@ def get_leaderboard():
 
 @app.route('/api/kids/my-submissions/<child_name>', methods=['GET'])
 def get_child_submissions(child_name):
-    """Get all submissions for a specific child"""
+    """
+    Get all submissions for a specific child.
+    Returns: {"submissions": [...]}
+    """
     try:
-        submissions = KidsSubmission.query.filter_by(
-            child_name=child_name
-        ).order_by(KidsSubmission.submitted_at.desc()).all()
+        child_submissions = [
+            s for s in submissions_db
+            if s['child_name'].lower() == child_name.lower()
+        ]
+
+        # Sort by most recent first
+        child_submissions.sort(key=lambda x: x['submitted_at'], reverse=True)
 
         # Calculate total stats
-        total_points = sum(s.points_earned for s in submissions)
-        avg_score = sum(float(s.score) for s in submissions) / len(submissions) if submissions else 0
+        total_points = sum(s['points_earned'] for s in child_submissions)
+        avg_score = sum(s['score'] for s in child_submissions) / len(child_submissions) if child_submissions else 0
 
         return jsonify({
-            "submissions": [s.to_dict() for s in submissions],
-            "total_submissions": len(submissions),
+            "submissions": child_submissions,
+            "total_submissions": len(child_submissions),
             "total_points": total_points,
             "average_score": round(avg_score, 1),
             "success": True
@@ -1050,17 +961,8 @@ def get_child_submissions(child_name):
 def health_check():
     """Health check endpoint"""
     import torch
-
-    # Test database connection
-    db_status = "connected"
-    try:
-        db.session.execute(db.text('SELECT 1'))
-    except:
-        db_status = "error"
-
     return jsonify({
         "status": "healthy",
-        "database": db_status,
         "groq_key_configured": bool(GROQ_API_KEY),
         "youtube_key_configured": bool(YOUTUBE_API_KEY),
         "image_api": "pollinations.ai (no key needed)",
@@ -1070,29 +972,10 @@ def health_check():
     })
 
 
-# ========================================
-# MAIN
-# ========================================
-
 if __name__ == '__main__':
-    with app.app_context():
-        # Create test user if enabled
-        if os.getenv('CREATE_TEST_USER', 'False').lower() == 'true':
-            create_test_user()
+    # Check if API keys are configured
+    if not GROQ_API_KEY:
+        print("WARNING: GROQ_API_KEY not found in environment variables")
 
-    host = os.getenv('FLASK_HOST', '0.0.0.0')
-    port = int(os.getenv('FLASK_PORT', 5000))
-    debug = os.getenv('FLASK_DEBUG', 'True').lower() == 'true'
-
-    print(f"""
-========================================
-🚀 AI Creative Suite Backend Starting
-========================================
-Database: {app.config['SQLALCHEMY_DATABASE_URI'].split('@')[0]}@***
-JWT Enabled: ✅
-CORS Origins: {cors_origins}
-Server: http://{host}:{port}
-========================================
-    """)
-
-    app.run(host=host, port=port, debug=debug)
+    print("Image generation: Using Pollinations.ai (free, no API key needed)")
+    app.run(debug=True, port=5000)

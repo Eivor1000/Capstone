@@ -1,8 +1,10 @@
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 
 function HomePage() {
   const navigate = useNavigate()
+  const { user, isAuthenticated, logout } = useAuth()
 
   const features = [
     {
@@ -58,11 +60,64 @@ function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-pink-50">
+      {/* Navigation Header */}
+      <nav className="bg-white shadow-md">
+        <div className="container mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <svg className="w-8 h-8 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-blue-600">
+                AI Creative Suite
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-4">
+              {isAuthenticated ? (
+                <>
+                  <button
+                    onClick={() => navigate('/profile')}
+                    className="flex items-center space-x-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 transition duration-200"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    <span>{user?.username}</span>
+                  </button>
+                  <button
+                    onClick={logout}
+                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition duration-200"
+                  >
+                    Logout
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    onClick={() => navigate('/login')}
+                    className="px-4 py-2 rounded-lg border border-purple-600 text-purple-600 hover:bg-purple-50 transition duration-200"
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    onClick={() => navigate('/signup')}
+                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700 transition duration-200"
+                  >
+                    Sign Up
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </nav>
+
       <div className="container mx-auto px-4 py-12">
         {/* Header */}
         <div className="text-center mb-16">
           <h1 className="text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 mb-4">
-            AI Creative Suite
+            {isAuthenticated ? `Welcome back, ${user?.username}!` : 'AI Creative Suite'}
           </h1>
           <p className="text-gray-600 text-xl max-w-2xl mx-auto">
             Unleash your creativity with our powerful AI-powered tools. Choose a feature to get started!

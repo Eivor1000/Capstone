@@ -1,6 +1,15 @@
 # 🎨 AI Creative Suite - Story Generator, Study Assistant & Kids Challenge
 
-A comprehensive full-stack AI-powered application featuring story generation with cover images, an intelligent study assistant, educational video recommendations, and an AI-graded kids creative challenge. Built with cutting-edge AI technologies and modern web frameworks.
+A comprehensive full-stack AI-powered application with **user authentication** and **database persistence**. Features story generation with cover images, an intelligent study assistant, educational video recommendations, and an AI-graded kids creative challenge. Built with cutting-edge AI technologies, modern web frameworks, and PostgreSQL database.
+
+## 🆕 What's New in Version 2.0
+
+- ✅ **User Authentication** - Secure login/signup with JWT tokens
+- ✅ **PostgreSQL Database** - All your data saved permanently
+- ✅ **User Profiles** - Manage your account and view history
+- ✅ **Local AI Grading** - Qwen2-VL model for kids challenge (GPU-accelerated)
+- ✅ **Beautiful Auth UI** - Modern login, signup, and profile pages
+- ✅ **Guest Mode** - Works without account (data not saved)
 
 ## 🌟 Features Overview
 
@@ -52,6 +61,10 @@ This project includes **4 powerful AI tools** in one platform:
 ### Backend
 - **Python 3.8+**
 - **Flask** - REST API framework
+- **PostgreSQL** - Relational database for persistent data
+- **SQLAlchemy** - ORM for database operations
+- **Flask-JWT-Extended** - JWT authentication
+- **Flask-Bcrypt** - Password hashing
 - **Groq API** - Story generation & text processing (llama-3.3-70b-versatile)
 - **Qwen2-VL-2B-Instruct** - Local vision-language model for kids challenge grading
 - **PyTorch 2.5+ (CUDA)** - GPU acceleration for vision model
@@ -64,16 +77,25 @@ This project includes **4 powerful AI tools** in one platform:
 ### Frontend
 - **React 18** - UI framework
 - **React Router** - Multi-page navigation
+- **Context API** - State management for authentication
 - **Vite** - Fast build tool
 - **Tailwind CSS** - Modern styling
 - **Axios** - HTTP client
 - **Web Speech API** - Browser-based text-to-speech
+
+### Database
+- **PostgreSQL** - Production-grade relational database
+- **8 Tables** - users, stories, study_sessions, quizzes, quiz_attempts, kids_assignments, kids_submissions, video_searches
+- **Relationships** - Foreign keys with cascade delete
+- **Indexes** - Optimized queries on user_id, created_at, week
 
 ## 📋 Prerequisites
 
 - **Python 3.8+**
 - **Node.js 16+**
 - **npm** or **yarn**
+- **PostgreSQL 12+** (for database)
+- **NVIDIA GPU with CUDA 12.1** (optional, for GPU-accelerated kids challenge grading)
 - Free API keys (see below)
 
 ## 🔑 API Keys Setup
@@ -140,10 +162,39 @@ copy .env.example .env
 cp .env.example .env
 ```
 
-5. **Edit `.env` file and add your API keys:**
+5. **Setup PostgreSQL database:**
+```bash
+# Create database
+createdb ai_creative_suite
+
+# Or using psql:
+psql -U postgres
+CREATE DATABASE ai_creative_suite;
+\q
+```
+
+6. **Edit `.env` file and add your configuration:**
 ```env
+# API Keys
 GROQ_API_KEY=your_groq_api_key_here
 YOUTUBE_API_KEY=your_youtube_api_key_here  # Optional
+
+# Database (update with your PostgreSQL credentials)
+DATABASE_URL=postgresql://postgres:your_password@localhost:5432/ai_creative_suite
+
+# JWT Secret (generate a random string)
+# Run: python -c "import secrets; print(secrets.token_hex(32))"
+JWT_SECRET_KEY=your_generated_secret_key_here
+
+# Flask
+FLASK_ENV=development
+FLASK_DEBUG=True
+```
+
+7. **Initialize database:**
+```bash
+python app.py
+# Database tables will be created automatically on first run
 ```
 
 ### Frontend Setup
@@ -185,6 +236,18 @@ Frontend runs on: **http://localhost:3000**
 Your browser should automatically open to the application!
 
 ## 🎮 How to Use
+
+### Getting Started
+
+1. **Sign Up** (optional but recommended)
+   - Click "Sign Up" in navigation
+   - Fill in username, email, password
+   - Optional: add phone, full name, age
+   - Auto-login after signup
+
+2. **Or Continue as Guest**
+   - Click "Continue as Guest" or use features directly
+   - Note: Your data won't be saved
 
 ### Feature 1: Story Generator
 
@@ -247,21 +310,39 @@ story-generator/
 
 ## 🔌 API Endpoints
 
+### Authentication
+- `POST /api/auth/register` - Create user account
+- `POST /api/auth/login` - Login with credentials
+- `GET /api/auth/me` - Get current user info (protected)
+- `PUT /api/auth/profile` - Update profile (protected)
+- `POST /api/auth/change-password` - Change password (protected)
+- `POST /api/auth/refresh` - Refresh access token
+
 ### Story Generator
-- `POST /api/generate-story` - Generate creative story
+- `POST /api/generate-story` - Generate creative story (saves to DB if logged in)
 - `POST /api/generate-image` - Create cover image
 - `POST /api/create-pdf` - Export story + image to PDF
+- `POST /api/stories/save-image` - Save cover image to story
+- `GET /api/stories/my-stories` - Get user's stories (protected)
 
 ### Study Assistant
-- `POST /api/summarize` - Summarize text
-- `POST /api/explain` - Detailed explanation
-- `POST /api/generate-revision` - Generate MCQs and Q&A
+- `POST /api/summarize` - Summarize text (saves to DB if logged in)
+- `POST /api/explain` - Detailed explanation (saves to DB if logged in)
+- `POST /api/generate-revision` - Generate MCQs and Q&A (saves to DB if logged in)
+- `POST /api/quiz/submit-score` - Save quiz scores (protected)
+- `GET /api/study/history` - Get study history (protected)
+
+### Kids Challenge
+- `GET /api/kids/assignments` - Get active assignments
+- `POST /api/kids/submit` - Submit artwork for AI grading (saves to DB if logged in)
+- `GET /api/kids/leaderboard` - Weekly leaderboard
+- `GET /api/kids/my-submissions/<name>` - Get child's submission history
 
 ### Video Search
-- `POST /api/find-videos` - Find educational YouTube videos
+- `POST /api/find-videos` - Find educational YouTube videos (saves to DB if logged in)
 
 ### Health
-- `GET /health` - Check API status
+- `GET /health` - Check API status and database connection
 
 ## 🛡️ Safety & Privacy
 
@@ -370,6 +451,32 @@ For issues or questions:
 
 ---
 
+## 📚 Additional Documentation
+
+For detailed setup and integration guides, see:
+
+- **`DATABASE_SCHEMA.md`** - Complete database design with all 8 tables
+- **`DATABASE_INTEGRATION_STATUS.md`** - Backend database integration progress
+- **`FRONTEND_SETUP_GUIDE.md`** - Frontend authentication setup guide
+- **`COMPLETE_INTEGRATION_SUMMARY.md`** - Full project overview and architecture
+- **`PROJECT_STATUS.md`** - Current project status and quick reference
+
+### Test Credentials
+
+A test user is created automatically on backend startup:
+
+```
+Username: testuser
+Email: test@example.com
+Password: password123
+```
+
+Use these credentials to test login functionality immediately!
+
+---
+
 **Built with ❤️ using AI technologies**
+
+**Version 2.0** - Now with user authentication, database persistence, and local AI grading!
 
 Enjoy creating stories, learning with AI, and exploring educational content! 🎉
