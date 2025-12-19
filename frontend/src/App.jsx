@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { AuthProvider } from './context/AuthContext'
 import HomePage from './components/HomePage'
 import StoryGenerator from './components/StoryGenerator'
+import Storybook from './components/Storybook'
 import StudyAssistant from './components/StudyAssistant'
 import KidsChallenge from './components/KidsChallenge'
 import Login from './components/Login'
@@ -35,6 +36,9 @@ function App() {
               <StoryGenerator />
             </div>
           } />
+
+          {/* Interactive Storybook Feature */}
+          <Route path="/storybook" element={<Storybook />} />
 
           {/* Study Assistant Feature */}
           <Route path="/study-assistant" element={<StudyAssistant />} />

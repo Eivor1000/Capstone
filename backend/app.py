@@ -19,6 +19,7 @@ from PIL import Image as PILImage
 from dotenv import load_dotenv
 import time
 from datetime import timedelta
+import torch
 
 # Local imports
 from models import db, User, Story, StudySession, Quiz, QuizAttempt, KidsAssignment, KidsSubmission, VideoSearch
@@ -326,6 +327,197 @@ def create_pdf():
         )
 
     except Exception as e:
+        return jsonify({"error": str(e), "success": False}), 500
+
+
+# ========================================
+# STORYBOOK GENERATOR ENDPOINTS (Hybrid: Pollinations + DreamShaper)
+# ========================================
+
+@app.route('/api/generate-storybook', methods=['POST'])
+@jwt_required(optional=True)
+def generate_storybook():
+    """
+    Generate an interactive storybook with 10 paragraphs and illustrations
+    Supports both Pollinations (fast) and DreamShaper (premium quality)
+    """
+    try:
+        data = request.get_json()
+        prompt = data.get('prompt', '')
+
+        if not prompt:
+            return jsonify({"error": "Prompt is required", "success": False}), 400
+
+        if not groq_client:
+            return jsonify({"error": "Story generation service unavailable", "success": False}), 500
+
+        print(f"Generating storybook for prompt: {prompt}")
+
+        # Step 1: Generate story with title and 10 paragraphs
+        story_prompt = f"""You are a children's storybook author. Create a magical storybook based on this theme: "{prompt}"
+
+Requirements:
+1. Generate a captivating story title
+2. Write exactly 10 paragraphs
+3. Each paragraph should be 90-110 words
+4. Use simple, narrative, storybook-style language suitable for children
+5. Make the story flow naturally with a beginning, middle, and end
+6. Include vivid descriptions of scenes, characters, and settings
+
+Format your response EXACTLY like this:
+TITLE: [Your story title here]
+
+PARAGRAPH 1:
+[First paragraph here]
+
+PARAGRAPH 2:
+[Second paragraph here]
+
+...continue for all 10 paragraphs...
+
+PARAGRAPH 10:
+[Tenth paragraph here]"""
+
+        completion = groq_client.chat.completions.create(
+            messages=[
+                {"role": "system", "content": "You are a creative children's storybook author."},
+                {"role": "user", "content": story_prompt}
+            ],
+            model="llama-3.3-70b-versatile",
+            temperature=0.8,
+            max_tokens=3000
+        )
+
+        story_text = completion.choices[0].message.content
+        
+        # Parse the story
+        lines = story_text.strip().split('\n')
+        title = ""
+        paragraphs = []
+        current_paragraph = ""
+        
+        for line in lines:
+            line = line.strip()
+            if line.startswith('TITLE:'):
+                title = line.replace('TITLE:', '').strip()
+            elif line.startswith('PARAGRAPH'):
+                if current_paragraph:
+                    paragraphs.append(current_paragraph.strip())
+                current_paragraph = ""
+            elif line and not line.startswith('PARAGRAPH'):
+                current_paragraph += " " + line
+
+        # Add the last paragraph
+        if current_paragraph:
+            paragraphs.append(current_paragraph.strip())
+
+        # Ensure we have exactly 10 paragraphs
+        if len(paragraphs) < 10:
+            return jsonify({
+                "error": f"Story generation incomplete. Only {len(paragraphs)} paragraphs generated.",
+                "success": False
+            }), 500
+
+        paragraphs = paragraphs[:10]  # Take first 10 if more
+
+        print(f"Story generated: {title}")
+        print(f"Paragraphs: {len(paragraphs)}")
+
+        # Step 2: Generate images for each paragraph using SD v1.5
+        images = []
+        print("Generating images with Stable Diffusion v1.5 (local model)...")
+        
+        try:
+            from sd_v15_generator import get_generator
+            generator = get_generator()
+            
+            for idx, paragraph in enumerate(paragraphs, 1):
+                print(f"Generating image {idx}/10 with SD v1.5...")
+                
+                # Summarize paragraph to 20-30 words for clear prompts
+                words = paragraph.split()[:25]  # Take first ~25 words
+                scene_summary = ' '.join(words).replace('\n', ' ').strip()
+                
+                # Highly realistic prompt with photorealistic quality
+                enhanced_prompt = (
+                    f"{scene_summary}, "
+                    "photorealistic, hyperrealistic, ultra detailed, "
+                    "8k quality, realistic lighting and shadows, "
+                    "full scene view, wide angle, everything in frame, "
+                    "natural colors, detailed textures, "
+                    "professional photography quality, cinematic"
+                )
+                
+                # Negative prompt for clean realistic results
+                negative_prompt = (
+                    "illustration, painting, drawing, sketch, cartoon, anime, "
+                    "cropped, cut off, out of frame, partial view, "
+                    "dark, scary, horror, "
+                    "blurry, low quality, grainy, pixelated, "
+                    "text, watermark, signature, "
+                    "bad anatomy, deformed, distorted, ugly, "
+                    "artificial, fake looking, oversaturated"
+                )
+                
+                # Generate with simpler settings for cleaner results
+                image_base64 = generator.generate_image_base64(
+                    prompt=enhanced_prompt,
+                    negative_prompt=negative_prompt,
+                    num_inference_steps=25,  # Reduced for simpler images
+                    guidance_scale=7.5,      # Standard guidance
+                    width=512,               # Back to 512x512
+                    height=512
+                )
+                
+                images.append(image_base64)
+                print(f"✓ Image {idx}/10 complete")
+                
+                # Clear CUDA cache between images
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+                    
+        except Exception as e:
+            print(f"SD-Turbo error: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({
+                "error": f"Image generation failed: {str(e)}",
+                "success": False
+            }), 500
+
+        # Save to database if user is logged in
+        user_id = None
+        try:
+            user_id = get_jwt_identity()
+        except:
+            pass
+
+        if user_id:
+            try:
+                full_story = '\n\n'.join(paragraphs)
+                story_record = Story(
+                    user_id=user_id,
+                    prompt=prompt,
+                    story_text=full_story,
+                    title=title
+                )
+                db.session.add(story_record)
+                db.session.commit()
+                print(f"Storybook saved to database for user {user_id}")
+            except Exception as e:
+                print(f"Error saving storybook to database: {str(e)}")
+
+        return jsonify({
+            "success": True,
+            "title": title,
+            "paragraphs": paragraphs,
+            "images": images
+        })
+
+    except Exception as e:
+        print(f"Error generating storybook: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e), "success": False}), 500
 
 

@@ -542,11 +542,6 @@ function StudyAssistant() {
             </div>
           </div>
         )}
-
-        {/* Footer */}
-        <div className="text-center mt-12 text-gray-500 text-sm">
-          <p>Powered by Groq AI & YouTube Data API - Helping students learn better</p>
-        </div>
       </div>
     </div>
   )

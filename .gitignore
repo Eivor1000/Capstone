@@ -165,6 +165,9 @@ qwenv2/
 *.pth
 *.pt
 
+# Image generation models (Stable Diffusion)
+image-gen/
+
 # Model configuration can be committed (small files)
 !qwenv2/config.json
 !qwenv2/tokenizer_config.json

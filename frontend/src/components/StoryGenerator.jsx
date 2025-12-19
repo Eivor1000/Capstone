@@ -16,6 +16,89 @@ function StoryGenerator() {
   const [error, setError] = useState('')
   const [storyTitle, setStoryTitle] = useState('')
   const [isReading, setIsReading] = useState(false)
+  const [isListening, setIsListening] = useState(false)
+  const [recognition, setRecognition] = useState(null)
+
+  /**
+   * Initialize speech recognition on component mount
+   */
+  React.useEffect(() => {
+    // Check if browser supports speech recognition
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
+    
+    if (SpeechRecognition) {
+      const recognitionInstance = new SpeechRecognition()
+      recognitionInstance.continuous = true
+      recognitionInstance.interimResults = true
+      recognitionInstance.lang = 'en-US'
+      
+      recognitionInstance.onresult = (event) => {
+        let interimTranscript = ''
+        let finalTranscript = ''
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript + ' '
+          } else {
+            interimTranscript += transcript
+          }
+        }
+        
+        // Update prompt with final transcript
+        if (finalTranscript) {
+          setPrompt(prev => prev + finalTranscript)
+        }
+      }
+      
+      recognitionInstance.onerror = (event) => {
+        console.error('Speech recognition error:', event.error)
+        setIsListening(false)
+        
+        if (event.error === 'no-speech') {
+          setError('No speech detected. Please try again.')
+        } else if (event.error === 'not-allowed') {
+          setError('Microphone access denied. Please allow microphone permissions.')
+        } else if (event.error === 'network') {
+          setError('Network error. Please check your connection.')
+        } else {
+          setError(`Speech recognition error: ${event.error}`)
+        }
+      }
+      
+      recognitionInstance.onend = () => {
+        setIsListening(false)
+      }
+      
+      setRecognition(recognitionInstance)
+    }
+  }, [])
+
+  /**
+   * Toggle speech-to-text listening
+   */
+  const handleVoiceInput = () => {
+    if (!recognition) {
+      setError('Speech recognition is not supported in your browser. Please use Chrome, Edge, or Safari.')
+      return
+    }
+    
+    if (isListening) {
+      // Stop listening
+      recognition.stop()
+      setIsListening(false)
+    } else {
+      // Start listening
+      setError('')
+      try {
+        recognition.start()
+        setIsListening(true)
+      } catch (err) {
+        console.error('Failed to start recognition:', err)
+        setError('Failed to start voice input. Please try again.')
+      }
+    }
+  }
 
   /**
    * Main function to generate story and cover image
@@ -267,14 +350,46 @@ function StoryGenerator() {
         <label className="block text-gray-700 text-lg font-semibold mb-3">
           What story would you like to create?
         </label>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder="E.g., A fantasy story about a dragon who loves books and starts a library in a magical forest..."
-          className="w-full p-4 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:outline-none resize-none transition-colors"
-          rows="4"
-          disabled={loading}
-        />
+        <div className="relative">
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="E.g., A fantasy story about a dragon who loves books and starts a library in a magical forest..."
+            className="w-full p-4 pr-16 border-2 border-gray-300 rounded-xl focus:border-purple-500 focus:outline-none resize-none transition-colors"
+            rows="4"
+            disabled={loading}
+          />
+          
+          {/* Voice Input Button */}
+          <button
+            onClick={handleVoiceInput}
+            disabled={loading}
+            className={`absolute right-3 bottom-3 p-3 rounded-full transition-all transform hover:scale-110 active:scale-95 shadow-lg ${
+              isListening
+                ? 'bg-red-500 hover:bg-red-600 animate-pulse'
+                : 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600'
+            } text-white disabled:bg-gray-400 disabled:cursor-not-allowed`}
+            title={isListening ? 'Stop listening' : 'Click to speak'}
+          >
+            {isListening ? (
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            )}
+          </button>
+        </div>
+        
+        {/* Listening indicator */}
+        {isListening && (
+          <div className="mt-2 flex items-center text-red-600 animate-pulse">
+            <div className="w-2 h-2 bg-red-600 rounded-full mr-2"></div>
+            <span className="text-sm font-semibold">Listening... speak now</span>
+          </div>
+        )}
 
         <button
           onClick={handleGenerate}
@@ -395,11 +510,6 @@ function StoryGenerator() {
           </button>
         </div>
       )}
-
-      {/* Footer */}
-      <div className="text-center mt-12 text-gray-500 text-sm">
-        <p>Powered by Groq AI and Pollinations.ai</p>
-      </div>
     </div>
   )
 }
