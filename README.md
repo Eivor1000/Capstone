@@ -1,4 +1,4 @@
-# 🎨 AI Creative Suite - Story Generator, Study Assistant & Kids Challenge
+# 🎨 KinderKraft - Story Generator, Study Assistant & Kids Challenge
 
 A comprehensive full-stack AI-powered application with **user authentication** and **database persistence**. Features story generation with cover images, an intelligent study assistant, educational video recommendations, and an AI-graded kids creative challenge. Built with cutting-edge AI technologies, modern web frameworks, and PostgreSQL database.
 

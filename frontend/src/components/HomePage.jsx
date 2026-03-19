@@ -83,7 +83,7 @@ function HomePage() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
               <span className="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-blue-600">
-                AI Creative Suite
+                KinderKraft
               </span>
             </div>
 
@@ -131,7 +131,7 @@ function HomePage() {
         {/* Header */}
         <div className="text-center mb-16">
           <h1 className="text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 via-pink-600 to-blue-600 mb-4">
-            {isAuthenticated ? `Welcome back, ${user?.username}!` : 'AI Creative Suite'}
+            {isAuthenticated ? `Welcome back, ${user?.username}!` : 'KinderKraft'}
           </h1>
           <p className="text-gray-600 text-xl max-w-2xl mx-auto">
             Unleash your creativity with our powerful AI-powered tools. Choose a feature to get started!

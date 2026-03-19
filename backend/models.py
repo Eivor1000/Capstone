@@ -1,5 +1,5 @@
 """
-Database Models for AI Creative Suite
+Database Models for KinderKraft
 Uses SQLAlchemy ORM with PostgreSQL
 """
 

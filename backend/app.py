@@ -1,5 +1,5 @@
 """
-AI Creative Suite - Flask Backend with Database Integration
+KinderKraft - Flask Backend with Database Integration
 Includes: Story Generator, Study Assistant, Kids Challenge, User Authentication
 """
 
@@ -43,8 +43,9 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_size': int(os.getenv('SQLALCHEMY_POOL_SIZE', 10)),
     'pool_timeout': int(os.getenv('SQLALCHEMY_POOL_TIMEOUT', 30)),
-    'pool_recycle': int(os.getenv('SQLALCHEMY_POOL_RECYCLE', 3600)),
+    'pool_recycle': int(os.getenv('SQLALCHEMY_POOL_RECYCLE', 1800)),  # 30 mins instead of 1 hour
     'max_overflow': int(os.getenv('SQLALCHEMY_MAX_OVERFLOW', 20)),
+    'pool_pre_ping': True,  # Test connections before using them
 }
 
 # JWT
@@ -83,7 +84,7 @@ YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/search"
 # ========================================
 
 @app.route('/api/generate-story', methods=['POST'])
-@jwt_required(optional=True)  # Optional: works for both logged-in and guest users
+@jwt_required(optional=True)
 def generate_story():
     """
     Generate a creative story using Groq API
@@ -459,14 +460,14 @@ PARAGRAPH 10:
                     "artificial, fake looking, oversaturated"
                 )
                 
-                # Generate with simpler settings for cleaner results
+                # Generate with high quality settings for realistic images
                 image_base64 = generator.generate_image_base64(
                     prompt=enhanced_prompt,
                     negative_prompt=negative_prompt,
-                    num_inference_steps=25,  # Reduced for simpler images
+                    num_inference_steps=35,  # More steps for better quality
                     guidance_scale=7.5,      # Standard guidance
-                    width=512,               # Back to 512x512
-                    height=512
+                    width=1024,              # High resolution for realism
+                    height=1024
                 )
                 
                 images.append(image_base64)
@@ -1122,9 +1123,28 @@ def submit_assignment():
         )
 
         db.session.add(submission)
-        db.session.commit()
-
-        print(f"✅ Submission saved to database (ID: {submission.id})")
+        
+        # Use flush() to get the ID without committing yet
+        # This avoids accessing submission.id after a potentially failed commit
+        try:
+            db.session.flush()
+            submission_id = submission.id
+            db.session.commit()
+            print(f"✅ Submission saved to database (ID: {submission_id})")
+        except Exception as db_error:
+            db.session.rollback()
+            print(f"⚠️ Database error: {str(db_error)}")
+            # Try one more time with a fresh connection
+            try:
+                db.session.add(submission)
+                db.session.flush()
+                submission_id = submission.id
+                db.session.commit()
+                print(f"✅ Submission saved on retry (ID: {submission_id})")
+            except Exception as retry_error:
+                db.session.rollback()
+                print(f"❌ Failed to save submission after retry: {str(retry_error)}")
+                submission_id = None
 
         # Create labels from description
         labels = [{"label": word, "confidence": 0.9} for word in image_description.split()[:5]]
@@ -1137,7 +1157,7 @@ def submit_assignment():
             "vision_description": image_description,
             "labels_detected": labels,
             "colors_detected": colors[:3],
-            "submission_id": submission.id,
+            "submission_id": submission_id,
             "success": True
         })
 
