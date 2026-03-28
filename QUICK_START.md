@@ -97,11 +97,4 @@ QwenGrader: Using device: cuda
 
 ---
 
-## Need More Details?
-
-📖 **Full Setup Guide**: `backend/QWEN_SETUP.md`
-📋 **Complete Summary**: `INTEGRATION_SUMMARY.md`
-
----
-
 **You're all set!** Just run the 3 steps above and you'll have a local AI model grading kids' creative work on your GPU! 🚀

@@ -423,17 +423,6 @@ story-generator/
 2. Publish directory: `dist`
 3. Update API URL in code to your backend URL
 
-## 🤝 Contributing
-
-Contributions welcome! Feel free to:
-- Report bugs
-- Suggest features
-- Submit pull requests
-
-## 📜 License
-
-This project is open source and available under the MIT License.
-
 ## 🙏 Credits
 
 - **Groq AI** - Fast LLM inference (llama-3.3-70b-versatile)

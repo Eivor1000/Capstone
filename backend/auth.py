@@ -1,8 +1,3 @@
-"""
-Authentication and Authorization Module
-Handles user registration, login, JWT tokens, and protected routes
-"""
-
 from flask import jsonify, request
 from flask_jwt_extended import (
     create_access_token,
@@ -169,10 +164,10 @@ def login_user(data):
             'refresh_token': refresh_token
         }
 
-        return True, "Login successful", tokens, user.to_dict()
+        return True, "User Login successful", tokens, user.to_dict()
 
     except Exception as e:
-        return False, f"Login failed: {str(e)}", None, None
+        return False, f"User Login failed: {str(e)}", None, None
 
 
 def get_current_user():
